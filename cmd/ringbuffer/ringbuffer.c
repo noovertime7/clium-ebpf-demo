@@ -1,13 +1,24 @@
 //go:build ignore
+#include <vmlinux.h>
 
-#include "common.h"
+#include <bpf_endian.h>
+#include <bpf_helpers.h>
+#include <bpf_tracing.h>
+
+#include "xdp_helper.h"
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
 struct event {
 	u32 pid;
 	u8 comm[80];
+	u32 sip;                     // 来源ip
+    u32 dip;                     // 目标地址
+    u32 op;                     // ARP类型 譬如 1：请求 2：应答
 };
+
+#define ARP_OP_REQUEST 1  // 请求
+#define ARP_OP_REPLY   2  // 应答
 
 struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);

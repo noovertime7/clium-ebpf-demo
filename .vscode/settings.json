@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "*.conf": "ini",
+        "*.vue": "vue",
+        "vmlinux.h": "c"
+    }
+}
