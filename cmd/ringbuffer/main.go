@@ -3,24 +3,26 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
+	"unsafe"
 
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
-	"golang.org/x/sys/unix"
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc $BPF_CLANG -cflags $BPF_CFLAGS -type event bpf ringbuffer.c -- -I $BPF_HEADERS
 
 func main() {
-	// Name of the kernel function to trace.
-	fn := "sys_execve"
+
 
 	// Subscribe to signals for terminating the program.
 	stopper := make(chan os.Signal, 1)
@@ -41,7 +43,10 @@ func main() {
 	// Open a Kprobe at the entry point of the kernel function and attach the
 	// pre-compiled program. Each time the kernel function enters, the program
 	// will emit an event containing pid and command of the execved task.
-	kp, err := link.Kprobe(fn, objs.KprobeExecve, nil)
+	kp, err := link.AttachXDP(link.XDPOptions{
+		Program: objs.Arp,
+		Interface: 2,
+	})
 	if err != nil {
 		log.Fatalf("opening kprobe: %s", err)
 	}
@@ -86,6 +91,30 @@ func main() {
 			continue
 		}
 
-		log.Printf("pid: %d\tcomm: %s\n", event.Pid, unix.ByteSliceToString(event.Comm[:]))
+		data := (*bpfEvent)(unsafe.Pointer(&record.RawSample[0]))
+		macStr := hex.EncodeToString(data.Smac[:])
+		sip := ResolveIP(data.Sip, true)
+		dip := ResolveIP(data.Dip, true)
+
+		if data.Op == 1 {
+			fmt.Printf("%s(%s)问: 谁是%s?\n",
+			sip, macStr, dip,
+		)
+		}else {
+			fmt.Printf("%s回答%s：我是,mac=%s\n",
+			sip, dip, macStr,)
+		}
+
 	}
+}
+
+
+func ResolveIP(input_ip uint32, isbig bool) net.IP {
+	ipNetworkOrder := make([]byte, 4)
+	if isbig {
+		binary.BigEndian.PutUint32(ipNetworkOrder, input_ip)
+	} else {
+		binary.LittleEndian.PutUint32(ipNetworkOrder, input_ip)
+	}
+	return ipNetworkOrder
 }
